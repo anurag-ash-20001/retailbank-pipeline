@@ -17,6 +17,21 @@ variables:
       warehouse: Serverless Starter Warehouse
 
 resources:
+  apps:
+    rb_kpi_app:
+      name: retailbank-kpi
+      description: RetailBank KPI Dashboard (Streamlit) - DQ, Day-2 incremental results and KPIs 1-13 from workspace.rb_gold
+      source_code_path: ./app
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: pipeline-job
+          job:
+            id: ${resources.jobs.rb_batch_pipeline.id}
+            permission: CAN_MANAGE_RUN
+
   dashboards:
     rb_kpi_dashboard:
       display_name: RetailBank - KPI Dashboard

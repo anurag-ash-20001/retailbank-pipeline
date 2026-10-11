@@ -1,0 +1,13 @@
+[client]
+toolbarMode = "viewer"
+showSidebarNavigation = true
+
+[theme]
+base = "dark"
+primaryColor = "#34d399"
+backgroundColor = "#05110c"
+secondaryBackgroundColor = "#0f2a20"
+textColor = "#ecfdf5"
+
+[browser]
+gatherUsageStats = false

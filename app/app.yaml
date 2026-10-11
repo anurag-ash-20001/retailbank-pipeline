@@ -1,0 +1,10 @@
+command: ["streamlit", "run", "app.py"]
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: RB_JOB_ID
+    valueFrom: pipeline-job
+  - name: RB_CATALOG
+    value: workspace
+  - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+    value: "false"

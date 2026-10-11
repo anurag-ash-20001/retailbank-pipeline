@@ -25,6 +25,26 @@ KPI 11: top-5 customers changed (C035 dropped from #1 because its T0793 was corr
 **Workspace locations:** notebooks `Workspace › Users › <you> › RetailBank_Pipeline › files › src` · jobs *RetailBank - Batch Pipeline (one day)*
 and *RetailBank - End-to-End Demo* · dashboard *RetailBank - KPI Dashboard* (Dashboards) · tables `Catalog › workspace › rb_*`.
 
+## Frontend – Streamlit Databricks App
+
+`app/` is a Streamlit app (deployed as the Databricks App **retailbank-kpi** by the bundle) that follows the
+*RetailBank KPI Dashboard* Figma design: dark/light glass theme, icon sidebar and 8 screens –
+**Overview · Transactions & Branches · Risk & Customers · Data Quality · Day 1 vs Day 2 · Pipeline runs · Customers · Reports & exports** (+ Settings).
+
+* Reads `workspace.rb_gold / rb_silver / rb_audit` live through the SQL warehouse (app resource `sql-warehouse`), cached 5 min.
+* Batch selector (DAY1 / DAY2) switches every KPI snapshot; Day 1 vs Day 2 shows KPI 11–13, SCD2 history, late corrections and recovered rows.
+* *Pipeline runs* lists job runs and can trigger the batch job (app resource `pipeline-job`, CAN_MANAGE_RUN).
+* *Reports & exports* downloads every KPI table, the quarantine, DQ checks and profile as CSV.
+
+```bash
+databricks bundle deploy && databricks bundle run rb_kpi_app
+# one-time: let the app's service principal read the tables
+#   GRANT USE CATALOG ON CATALOG workspace TO `<app-sp-client-id>`;
+#   GRANT USE SCHEMA, SELECT ON SCHEMA workspace.rb_gold|rb_silver|rb_audit|rb_bronze TO `<app-sp-client-id>`;
+```
+
+Local run: `DATABRICKS_CONFIG_PROFILE=<profile> DATABRICKS_WAREHOUSE_ID=<id> streamlit run app/app.py`.
+
 ## Platform choice & service mapping
 
 | Capability | Used here | Why |
@@ -56,6 +76,7 @@ src/08_kpis.py                 # KPI 1-13 tables + latest views
 src/09_demo_report.py          # read-only walkthrough for the demo
 src/99_reset.py                # drop all pipeline tables (landing files kept) for a clean replay
 src/dashboards/retailbank_kpis.lvdash.json  # AI/BI dashboard (deployed by the bundle)
+app/app.py, app/data.py, app/ui.py    # Streamlit Databricks App (Figma design), app.yaml + requirements.txt
 docs/architecture.svg, docs/data_quality_report.md
 ```
 
