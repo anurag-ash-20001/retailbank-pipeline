@@ -1,0 +1,144 @@
+{
+  "datasets": [
+    {"name": "ds_scorecard", "displayName": "DQ scorecard",
+     "queryLines": ["SELECT as_of_batch, entity, source_file, received, passed, rejected, duplicates_removed, invalid_rejected, passed_with_fixes, pass_rate_pct, top3_rejection_reasons ",
+                    "FROM workspace.rb_gold.kpi10_dq_scorecard ORDER BY as_of_batch_seq, entity"]},
+    {"name": "ds_top5", "displayName": "Top 5 customers",
+     "queryLines": ["SELECT rank, customer_id, customer_name, kyc_status, txn_count, net_value FROM workspace.rb_gold.vw_kpi01_customer_net_ranking WHERE is_top5 ORDER BY rank"]},
+    {"name": "ds_region_trend", "displayName": "Monthly trend by region",
+     "queryLines": ["SELECT region, month, net_value, txn_count, mom_value_growth_pct FROM workspace.rb_gold.vw_kpi02_monthly_trend WHERE grain = 'REGION'"]},
+    {"name": "ds_category", "displayName": "Revenue by category (current quarter)",
+     "queryLines": ["SELECT dim_name AS category, revenue, revenue_share_pct, prior_quarter_revenue, qoq_revenue_change_pct FROM workspace.rb_gold.vw_kpi03_product_revenue WHERE grain = 'CATEGORY' AND is_current_quarter"]},
+    {"name": "ds_risk", "displayName": "Suspicious transactions",
+     "queryLines": ["SELECT risk_reason_text, risk_level, count(*) AS txns, sum(amount) AS amount FROM workspace.rb_gold.vw_kpi05_suspicious_transactions GROUP BY ALL"]},
+    {"name": "ds_rfm", "displayName": "RFM segments",
+     "queryLines": ["SELECT segment, count(*) AS customers, sum(monetary) AS monetary FROM workspace.rb_gold.vw_kpi06_customer_rfm_segments GROUP BY segment"]},
+    {"name": "ds_branch", "displayName": "Branch ranking",
+     "queryLines": ["SELECT region, rank_in_region, branch_id, branch_name, net_revenue, txn_count, is_top_performer, is_bottom_performer FROM workspace.rb_gold.vw_kpi07_branch_ranking ",
+                    "WHERE is_top_performer OR is_bottom_performer ORDER BY region, rank_in_region"]},
+    {"name": "ds_kyc", "displayName": "KYC exposure",
+     "queryLines": ["SELECT kyc_status, txn_count, net_value, pct_of_txn_count, pct_of_value FROM workspace.rb_gold.vw_kpi08_kyc_exposure WHERE kyc_status <> 'ALL_NON_VERIFIED'"]},
+    {"name": "ds_recon", "displayName": "Day-2 reconciliation",
+     "queryLines": ["SELECT entity, records_received, records_rejected, new_records, updated_scd2_new_version, updated_in_place, corrected_late_arriving, unchanged, recovered_from_prior_quarantine ",
+                    "FROM workspace.rb_gold.vw_kpi11_load_reconciliation ORDER BY entity"]},
+    {"name": "ds_kyc_tr", "displayName": "KYC transitions",
+     "queryLines": ["SELECT transition, count(*) AS customers FROM workspace.rb_gold.vw_kpi12_kyc_transitions GROUP BY transition"]}
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "RetailBank KPIs",
+      "layout": [
+        {"widget": {"name": "title", "multilineTextboxSpec": {"lines": ["# RetailBank – Customer Transaction Analytics", "Latest batch KPIs. Value = successful INR transactions, net of refunds."]}},
+         "position": {"x": 0, "y": 0, "width": 6, "height": 2}},
+
+        {"widget": {"name": "w_top5",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_top5", "disaggregated": true, "fields": [
+            {"name": "rank", "expression": "`rank`"}, {"name": "customer_id", "expression": "`customer_id`"},
+            {"name": "customer_name", "expression": "`customer_name`"}, {"name": "kyc_status", "expression": "`kyc_status`"},
+            {"name": "txn_count", "expression": "`txn_count`"}, {"name": "net_value", "expression": "`net_value`"}]}}],
+          "spec": {"version": 1, "widgetType": "table", "encodings": {"columns": [
+            {"fieldName": "rank", "displayName": "Rank"}, {"fieldName": "customer_id", "displayName": "Customer"},
+            {"fieldName": "customer_name", "displayName": "Name"}, {"fieldName": "kyc_status", "displayName": "KYC"},
+            {"fieldName": "txn_count", "displayName": "Txns"}, {"fieldName": "net_value", "displayName": "Net value (INR)"}]},
+            "frame": {"showTitle": true, "title": "KPI 1 · Top 5 customers by net value"}}},
+         "position": {"x": 0, "y": 2, "width": 3, "height": 6}},
+
+        {"widget": {"name": "w_kyc",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_kyc", "disaggregated": true, "fields": [
+            {"name": "kyc_status", "expression": "`kyc_status`"}, {"name": "pct_of_value", "expression": "`pct_of_value`"}]}}],
+          "spec": {"version": 3, "widgetType": "pie", "encodings": {
+            "angle": {"fieldName": "pct_of_value", "scale": {"type": "quantitative"}, "displayName": "% of value"},
+            "color": {"fieldName": "kyc_status", "scale": {"type": "categorical"}, "displayName": "KYC status"}},
+            "frame": {"showTitle": true, "title": "KPI 8 · Value by KYC status"}}},
+         "position": {"x": 3, "y": 2, "width": 3, "height": 6}},
+
+        {"widget": {"name": "w_trend",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_region_trend", "disaggregated": true, "fields": [
+            {"name": "month", "expression": "`month`"}, {"name": "net_value", "expression": "`net_value`"}, {"name": "region", "expression": "`region`"}]}}],
+          "spec": {"version": 3, "widgetType": "line", "encodings": {
+            "x": {"fieldName": "month", "scale": {"type": "temporal"}, "displayName": "Month"},
+            "y": {"fieldName": "net_value", "scale": {"type": "quantitative"}, "displayName": "Net value (INR)"},
+            "color": {"fieldName": "region", "scale": {"type": "categorical"}, "displayName": "Region"}},
+            "frame": {"showTitle": true, "title": "KPI 2 · Monthly net value by region"}}},
+         "position": {"x": 0, "y": 8, "width": 6, "height": 6}},
+
+        {"widget": {"name": "w_cat",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_category", "disaggregated": true, "fields": [
+            {"name": "category", "expression": "`category`"}, {"name": "revenue_share_pct", "expression": "`revenue_share_pct`"}]}}],
+          "spec": {"version": 3, "widgetType": "bar", "encodings": {
+            "x": {"fieldName": "category", "scale": {"type": "categorical"}, "displayName": "Category"},
+            "y": {"fieldName": "revenue_share_pct", "scale": {"type": "quantitative"}, "displayName": "Revenue share %"}},
+            "frame": {"showTitle": true, "title": "KPI 3 · Revenue share by category (current quarter)"}}},
+         "position": {"x": 0, "y": 14, "width": 3, "height": 6}},
+
+        {"widget": {"name": "w_rfm",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_rfm", "disaggregated": true, "fields": [
+            {"name": "segment", "expression": "`segment`"}, {"name": "customers", "expression": "`customers`"}]}}],
+          "spec": {"version": 3, "widgetType": "bar", "encodings": {
+            "x": {"fieldName": "segment", "scale": {"type": "categorical"}, "displayName": "Segment"},
+            "y": {"fieldName": "customers", "scale": {"type": "quantitative"}, "displayName": "Customers"}},
+            "frame": {"showTitle": true, "title": "KPI 6 · RFM segments"}}},
+         "position": {"x": 3, "y": 14, "width": 3, "height": 6}},
+
+        {"widget": {"name": "w_risk",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_risk", "disaggregated": true, "fields": [
+            {"name": "risk_reason_text", "expression": "`risk_reason_text`"}, {"name": "txns", "expression": "`txns`"}]}}],
+          "spec": {"version": 3, "widgetType": "bar", "encodings": {
+            "x": {"fieldName": "txns", "scale": {"type": "quantitative"}, "displayName": "Transactions"},
+            "y": {"fieldName": "risk_reason_text", "scale": {"type": "categorical"}, "displayName": "Risk reasons"}},
+            "frame": {"showTitle": true, "title": "KPI 5 · Suspicious transactions by rule"}}},
+         "position": {"x": 0, "y": 20, "width": 3, "height": 6}},
+
+        {"widget": {"name": "w_branch",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_branch", "disaggregated": true, "fields": [
+            {"name": "region", "expression": "`region`"}, {"name": "rank_in_region", "expression": "`rank_in_region`"},
+            {"name": "branch_id", "expression": "`branch_id`"}, {"name": "net_revenue", "expression": "`net_revenue`"},
+            {"name": "is_top_performer", "expression": "`is_top_performer`"}]}}],
+          "spec": {"version": 1, "widgetType": "table", "encodings": {"columns": [
+            {"fieldName": "region", "displayName": "Region"}, {"fieldName": "rank_in_region", "displayName": "Rank"},
+            {"fieldName": "branch_id", "displayName": "Branch"}, {"fieldName": "net_revenue", "displayName": "Net revenue"},
+            {"fieldName": "is_top_performer", "displayName": "Top?"}]},
+            "frame": {"showTitle": true, "title": "KPI 7 · Top & bottom branch per region"}}},
+         "position": {"x": 3, "y": 20, "width": 3, "height": 6}},
+
+        {"widget": {"name": "w_dq",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_scorecard", "disaggregated": true, "fields": [
+            {"name": "as_of_batch", "expression": "`as_of_batch`"}, {"name": "source_file", "expression": "`source_file`"},
+            {"name": "received", "expression": "`received`"}, {"name": "passed", "expression": "`passed`"},
+            {"name": "rejected", "expression": "`rejected`"}, {"name": "pass_rate_pct", "expression": "`pass_rate_pct`"},
+            {"name": "top3_rejection_reasons", "expression": "`top3_rejection_reasons`"}]}}],
+          "spec": {"version": 1, "widgetType": "table", "encodings": {"columns": [
+            {"fieldName": "as_of_batch", "displayName": "Batch"}, {"fieldName": "source_file", "displayName": "File"},
+            {"fieldName": "received", "displayName": "Received"}, {"fieldName": "passed", "displayName": "Passed"},
+            {"fieldName": "rejected", "displayName": "Rejected"}, {"fieldName": "pass_rate_pct", "displayName": "Pass %"},
+            {"fieldName": "top3_rejection_reasons", "displayName": "Top 3 rejection reasons"}]},
+            "frame": {"showTitle": true, "title": "KPI 10 · Data-quality scorecard"}}},
+         "position": {"x": 0, "y": 26, "width": 6, "height": 6}},
+
+        {"widget": {"name": "w_recon",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_recon", "disaggregated": true, "fields": [
+            {"name": "entity", "expression": "`entity`"}, {"name": "records_received", "expression": "`records_received`"},
+            {"name": "new_records", "expression": "`new_records`"}, {"name": "updated_scd2_new_version", "expression": "`updated_scd2_new_version`"},
+            {"name": "updated_in_place", "expression": "`updated_in_place`"}, {"name": "corrected_late_arriving", "expression": "`corrected_late_arriving`"},
+            {"name": "recovered_from_prior_quarantine", "expression": "`recovered_from_prior_quarantine`"}]}}],
+          "spec": {"version": 1, "widgetType": "table", "encodings": {"columns": [
+            {"fieldName": "entity", "displayName": "Entity"}, {"fieldName": "records_received", "displayName": "Received"},
+            {"fieldName": "new_records", "displayName": "New"}, {"fieldName": "updated_scd2_new_version", "displayName": "SCD2 versions"},
+            {"fieldName": "updated_in_place", "displayName": "Updated in place"}, {"fieldName": "corrected_late_arriving", "displayName": "Corrected"},
+            {"fieldName": "recovered_from_prior_quarantine", "displayName": "Recovered"}]},
+            "frame": {"showTitle": true, "title": "KPI 11 · Day-2 incremental reconciliation"}}},
+         "position": {"x": 0, "y": 32, "width": 4, "height": 5}},
+
+        {"widget": {"name": "w_kyc_tr",
+          "queries": [{"name": "main_query", "query": {"datasetName": "ds_kyc_tr", "disaggregated": true, "fields": [
+            {"name": "transition", "expression": "`transition`"}, {"name": "customers", "expression": "`customers`"}]}}],
+          "spec": {"version": 3, "widgetType": "bar", "encodings": {
+            "x": {"fieldName": "transition", "scale": {"type": "categorical"}, "displayName": "Transition"},
+            "y": {"fieldName": "customers", "scale": {"type": "quantitative"}, "displayName": "Customers"}},
+            "frame": {"showTitle": true, "title": "KPI 12 · KYC transitions"}}},
+         "position": {"x": 4, "y": 32, "width": 2, "height": 5}}
+      ]
+    }
+  ]
+}

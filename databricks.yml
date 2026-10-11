@@ -1,0 +1,94 @@
+# Databricks Asset Bundle – infrastructure as code for the RetailBank pipeline.
+#   databricks bundle deploy            # push notebooks + create/update jobs
+#   databricks bundle run rb_end_to_end_demo
+bundle:
+  name: retailbank_pipeline
+
+workspace:
+  root_path: /Workspace/Users/${workspace.current_user.userName}/RetailBank_Pipeline
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds the rb_* schemas
+    default: workspace
+  warehouse_id:
+    description: SQL warehouse used by the KPI dashboard
+    lookup:
+      warehouse: Serverless Starter Warehouse
+
+resources:
+  dashboards:
+    rb_kpi_dashboard:
+      display_name: RetailBank - KPI Dashboard
+      file_path: ./src/dashboards/retailbank_kpis.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+
+  jobs:
+    rb_batch_pipeline:
+      name: RetailBank - Batch Pipeline (one day)
+      description: >
+        Ingest -> profile -> cleanse -> SCD2 dimensions -> transaction fact -> DQ checks -> KPIs for ONE batch.
+        Idempotent: re-running the same batch_id produces the same result.
+      max_concurrent_runs: 1
+      parameters:
+        - name: batch_id
+          default: day1
+        - name: catalog
+          default: ${var.catalog}
+        - name: business_date
+          default: ""
+        - name: source_folder
+          default: ""
+      tasks:
+        - task_key: setup
+          notebook_task: {notebook_path: ./src/00_setup.py}
+        - task_key: ingest_bronze
+          depends_on: [{task_key: setup}]
+          notebook_task: {notebook_path: ./src/01_ingest_bronze.py}
+        - task_key: profile_bronze
+          depends_on: [{task_key: ingest_bronze}]
+          notebook_task: {notebook_path: ./src/02_profile_bronze.py}
+        - task_key: silver_dimensions
+          depends_on: [{task_key: ingest_bronze}]
+          notebook_task: {notebook_path: ./src/03_silver_dimensions.py}
+        - task_key: gold_dimensions
+          depends_on: [{task_key: silver_dimensions}]
+          notebook_task: {notebook_path: ./src/04_gold_dimensions.py}
+        - task_key: silver_transactions
+          depends_on: [{task_key: gold_dimensions}]
+          notebook_task: {notebook_path: ./src/05_silver_transactions.py}
+        - task_key: gold_fact
+          depends_on: [{task_key: silver_transactions}]
+          notebook_task: {notebook_path: ./src/06_gold_fact.py}
+        - task_key: dq_checks
+          depends_on: [{task_key: gold_fact}, {task_key: profile_bronze}]
+          notebook_task: {notebook_path: ./src/07_dq_checks.py}
+        - task_key: kpis
+          depends_on: [{task_key: dq_checks}]
+          notebook_task: {notebook_path: ./src/08_kpis.py}
+
+    rb_end_to_end_demo:
+      name: RetailBank - End-to-End Demo (reset, Day 1, Day 2)
+      description: Drops all pipeline tables (landing files are kept), then runs the Day 1 baseline and the Day 2 incremental drop.
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: reset
+          notebook_task:
+            notebook_path: ./src/99_reset.py
+            base_parameters: {catalog: "${var.catalog}", confirm: "YES"}
+        - task_key: run_day1
+          depends_on: [{task_key: reset}]
+          run_job_task:
+            job_id: ${resources.jobs.rb_batch_pipeline.id}
+            job_parameters: {batch_id: day1, catalog: "${var.catalog}"}
+        - task_key: run_day2
+          depends_on: [{task_key: run_day1}]
+          run_job_task:
+            job_id: ${resources.jobs.rb_batch_pipeline.id}
+            job_parameters: {batch_id: day2, catalog: "${var.catalog}"}
+
+targets:
+  dev:
+    default: true
+    workspace:
+      host: https://dbc-05731642-eb25.cloud.databricks.com

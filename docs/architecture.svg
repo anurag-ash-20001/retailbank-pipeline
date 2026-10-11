@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <style>
+    .t{font-size:15px;font-weight:600;fill:#1b1f24}
+    .s{font-size:11.5px;fill:#3d4651}
+    .h{font-size:13px;font-weight:700;fill:#ffffff}
+    .lbl{font-size:11px;fill:#5b6570}
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5b6570"/></marker>
+  </defs>
+  <rect width="1200" height="640" fill="#ffffff"/>
+  <text x="24" y="34" font-size="20" font-weight="700" fill="#1b1f24">RetailBank – Customer Transaction Analytics on Databricks (Free Edition, serverless)</text>
+  <text x="24" y="56" class="s">Medallion architecture · Unity Catalog <tspan font-weight="600">workspace.rb_*</tspan> · orchestrated by Databricks Workflows (Asset Bundle) · parameter batch_id = day1 | day2 | …</text>
+
+  <!-- Orchestration band -->
+  <rect x="24" y="76" width="1152" height="40" rx="8" fill="#eef2f7" stroke="#c9d3df"/>
+  <text x="40" y="101" class="s"><tspan font-weight="700">Job “RetailBank - Batch Pipeline”</tspan>  setup → ingest_bronze → (profile_bronze ‖ silver_dimensions) → gold_dimensions → silver_transactions → gold_fact → dq_checks (blocking) → kpis   ·   Job “End-to-End Demo”: reset → day1 → day2</text>
+
+  <!-- columns -->
+  <g>
+    <rect x="24" y="140" width="200" height="330" rx="10" fill="#fff7e6" stroke="#e8b04a"/>
+    <rect x="24" y="140" width="200" height="30" rx="10" fill="#e8a33a"/><text x="40" y="160" class="h">LANDING  (Volume)</text>
+    <text x="38" y="194" class="t">rb_landing.raw</text>
+    <text x="38" y="214" class="s">RetailBank_SourceData/</text>
+    <text x="38" y="230" class="s">  branches.csv · customers.csv</text>
+    <text x="38" y="246" class="s">  products_json.txt · transactions.csv</text>
+    <text x="38" y="268" class="s">RetailBank_SourceData_Day2/</text>
+    <text x="38" y="284" class="s">  *_day2 files (incremental)</text>
+    <text x="38" y="318" class="t">rb_landing.archive</text>
+    <text x="38" y="338" class="s">immutable copy per batch</text>
+    <text x="38" y="354" class="s">md5-verified, never overwritten</text>
+    <text x="38" y="370" class="s">(audit / replay)</text>
+  </g>
+  <g>
+    <rect x="258" y="140" width="200" height="330" rx="10" fill="#f5efe8" stroke="#b08a5c"/>
+    <rect x="258" y="140" width="200" height="30" rx="10" fill="#9c7448"/><text x="274" y="160" class="h">BRONZE</text>
+    <text x="272" y="194" class="t">rb_bronze.*</text>
+    <text x="272" y="214" class="s">branches, customers,</text>
+    <text x="272" y="230" class="s">products, transactions</text>
+    <text x="272" y="254" class="s">• every column STRING, as received</text>
+    <text x="272" y="270" class="s">• _batch_id, _source_file,</text>
+    <text x="272" y="286" class="s">  _row_num, _ingested_at</text>
+    <text x="272" y="302" class="s">• JSON defect salvaged per object</text>
+    <text x="272" y="318" class="s">• replaceWhere _batch_id (idempotent)</text>
+    <text x="272" y="350" class="t">rb_audit.ingestion_log</text>
+    <text x="272" y="368" class="t">rb_audit.data_profile</text>
+  </g>
+  <g>
+    <rect x="492" y="140" width="220" height="330" rx="10" fill="#eef1f4" stroke="#8a97a6"/>
+    <rect x="492" y="140" width="220" height="30" rx="10" fill="#6b7a8c"/><text x="508" y="160" class="h">SILVER</text>
+    <text x="506" y="194" class="t">rb_silver.* (cleansed)</text>
+    <text x="506" y="214" class="s">• standardize, repair, type</text>
+    <text x="506" y="230" class="s">• validate → reason codes</text>
+    <text x="506" y="246" class="s">• dedupe exact / near / conflicting</text>
+    <text x="506" y="262" class="s">• date vs timestamp reconcile</text>
+    <text x="506" y="278" class="s">• RI vs current gold dimensions</text>
+    <text x="506" y="294" class="s">• dq_flags array per row</text>
+    <rect x="506" y="312" width="192" height="72" rx="6" fill="#fde8e8" stroke="#d66"/>
+    <text x="516" y="332" class="t">rb_silver.quarantine</text>
+    <text x="516" y="350" class="s">raw payload + reason codes</text>
+    <text x="516" y="366" class="s">orphans retried every run</text>
+    <text x="506" y="408" class="s">rule catalogue:</text>
+    <text x="506" y="424" class="t">rb_audit.dq_rule_catalog</text>
+  </g>
+  <g>
+    <rect x="746" y="140" width="210" height="330" rx="10" fill="#fff9db" stroke="#c9a400"/>
+    <rect x="746" y="140" width="210" height="30" rx="10" fill="#b39200"/><text x="762" y="160" class="h">GOLD  (curated model)</text>
+    <text x="760" y="194" class="t">dim_customer  (SCD2)</text>
+    <text x="760" y="210" class="s">kyc_status, address, city</text>
+    <text x="760" y="232" class="t">dim_branch  (SCD2)</text>
+    <text x="760" y="248" class="s">manager, region, branch_type</text>
+    <text x="760" y="270" class="t">dim_product  (SCD2)</text>
+    <text x="760" y="286" class="s">price, is_active, category, type</text>
+    <rect x="760" y="300" width="182" height="74" rx="6" fill="#fff" stroke="#c9a400"/>
+    <text x="770" y="320" class="t">fact_transaction</text>
+    <text x="770" y="338" class="s">grain: 1 row / transaction_id</text>
+    <text x="770" y="354" class="s">SKs point-in-time · MERGE</text>
+    <text x="770" y="368" class="s">corrections update in place</text>
+    <text x="760" y="398" class="t">fact_transaction_history</text>
+    <text x="760" y="414" class="s">superseded versions (audit)</text>
+    <text x="760" y="440" class="s">IDENTITY surrogate keys</text>
+  </g>
+  <g>
+    <rect x="990" y="140" width="186" height="330" rx="10" fill="#e9f6ee" stroke="#3f9c63"/>
+    <rect x="990" y="140" width="186" height="30" rx="10" fill="#2f8a52"/><text x="1006" y="160" class="h">KPI LAYER</text>
+    <text x="1004" y="194" class="t">rb_gold.kpi01…kpi13</text>
+    <text x="1004" y="212" class="s">snapshot per as_of_batch</text>
+    <text x="1004" y="228" class="t">rb_gold.vw_kpi*</text>
+    <text x="1004" y="246" class="s">latest batch views</text>
+    <text x="1004" y="272" class="s">1 top customers · 2 monthly trend</text>
+    <text x="1004" y="288" class="s">3 product revenue · 4 dormant</text>
+    <text x="1004" y="304" class="s">5 suspicious · 6 RFM segments</text>
+    <text x="1004" y="320" class="s">7 branch rank · 8 KYC exposure</text>
+    <text x="1004" y="336" class="s">9 refund rate · 10 DQ scorecard</text>
+    <text x="1004" y="352" class="s">11 DoD reconciliation</text>
+    <text x="1004" y="368" class="s">12 KYC transitions</text>
+    <text x="1004" y="384" class="s">13 new account activation</text>
+    <text x="1004" y="414" class="s">→ SQL Editor / AI-BI dashboard</text>
+  </g>
+  <g stroke="#5b6570" stroke-width="2" fill="none" marker-end="url(#a)">
+    <path d="M224 300 H256"/><path d="M458 300 H490"/><path d="M712 300 H744"/><path d="M956 300 H988"/>
+  </g>
+
+  <!-- bottom bands -->
+  <rect x="24" y="492" width="560" height="128" rx="10" fill="#f4f0fb" stroke="#9a84c9"/>
+  <text x="40" y="516" class="t">Day 2 incremental design</text>
+  <text x="40" y="538" class="s">• Dimensions: MERGE upsert; SCD2 attribute change → expire + new version, Type-1 → in place, NULL never overwrites</text>
+  <text x="40" y="556" class="s">• Facts: MERGE on transaction_id – re-used id with new payload = late correction → update in place (+history)</text>
+  <text x="40" y="574" class="s">• Quarantined orphans re-validated: late-arriving dimension members recover old transactions</text>
+  <text x="40" y="592" class="s">• Only the new batch is read – history is never reprocessed; re-running a batch is a no-op</text>
+  <text x="40" y="610" class="s">• Immutable batches: changed file for an existing batch id is refused</text>
+
+  <rect x="606" y="492" width="570" height="128" rx="10" fill="#eef7fb" stroke="#5aa3c8"/>
+  <text x="622" y="516" class="t">Quality &amp; observability (rb_audit)</text>
+  <text x="622" y="538" class="s">• batch_control (RUNNING → SUCCEEDED) · ingestion_log (file, rows, md5, structural issues)</text>
+  <text x="622" y="556" class="s">• data_profile (nulls, distinct, patterns per column) · load_stats (received/passed/rejected/new/changed/corrected)</text>
+  <text x="622" y="574" class="s">• dq_check_results: reconciliation, uniqueness, SCD2 overlap, RI, domain checks → ERROR fails the job</text>
+  <text x="622" y="592" class="s">• KPI10 scorecard: received vs passed vs rejected + top-3 reasons per file per run</text>
+</svg>
