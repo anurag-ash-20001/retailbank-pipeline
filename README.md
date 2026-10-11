@@ -4,6 +4,10 @@ End-to-end, re-runnable medallion pipeline on **Databricks (Free Edition, server
 deliberately dirty RetailBank feeds into a curated star schema and the 13 KPIs of the brief, and absorbs the Day 2
 incremental drop (new records, SCD changes, late transaction corrections) without reprocessing history.
 
+**Live app:** https://retailbank-kpi-7474650296511121.aws.databricksapps.com
+(Streamlit Databricks App. Databricks Apps always require a sign-in: open it with a Databricks account that has been
+given access to the workspace and the app. Screenshots of every page are in [docs/screenshots](docs/screenshots).)
+
 ![architecture](docs/architecture.svg)
 
 ## Results at a glance (end-to-end run: reset → Day 1 → Day 2)
@@ -26,6 +30,9 @@ KPI 11: top-5 customers changed (C035 dropped from #1 because its T0793 was corr
 and *RetailBank - End-to-End Demo* · dashboard *RetailBank - KPI Dashboard* (Dashboards) · tables `Catalog › workspace › rb_*`.
 
 ## Frontend – Streamlit Databricks App
+
+**Deployed at:** https://retailbank-kpi-7474650296511121.aws.databricksapps.com (Databricks sign-in required;
+to give someone access: add them to the workspace, then Compute → Apps → retailbank-kpi → Permissions → *CAN USE*).
 
 `app/` is a Streamlit app (deployed as the Databricks App **retailbank-kpi** by the bundle) that follows the
 *RetailBank KPI Dashboard* Figma design: dark/light glass theme, icon sidebar and 8 screens –
