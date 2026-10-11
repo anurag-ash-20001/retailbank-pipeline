@@ -1,4 +1,13 @@
 """Theme + HTML components reproducing the RetailBank KPI Dashboard Figma design (dark / light glass)."""
+# HOW TO EXPLAIN THIS FILE
+# ------------------------
+# ui.py reproduces the LOOK of the Figma design ("RetailBank KPI Dashboard"): dark/light green glass cards,
+# pills, tiles with sparklines, tables with progress bars. Streamlit has no such components built in, so:
+#   * inject_css() adds one <style> block that restyles Streamlit (background glow, glass cards, sidebar, buttons)
+#   * small helper functions return HTML snippets (pill, bar, sparkline, tile, html_table) that app.py renders
+#     with st.markdown(..., unsafe_allow_html=True)
+#   * fig_layout()/chart() give every Plotly chart the same transparent, themed look.
+# All colours come from ONE dictionary per theme (THEMES), so the light theme is just a different palette.
 import html
 import math
 
@@ -6,6 +15,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+# Design tokens (colours) of the two themes in the Figma file. Names describe the ROLE of the colour:
+# bg = page background, card = glass card fill, border = card outline, text/muted = text colours,
+# accent = brand green, pos/neg/warn/info = good / bad / warning / neutral (+ _bg = the pill background),
+# series = colours of chart lines, heat = colour scale of the refund heatmap (low -> high).
 THEMES = {
     "dark": dict(
         bg="#05110c", bg2="#0a1f17", glow1="rgba(16,185,129,.28)", glow2="rgba(5,150,105,.18)",
@@ -28,10 +41,13 @@ THEMES = {
 }
 
 
+# Returns the palette of the theme chosen in the sidebar toggle (kept in st.session_state, default dark).
 def theme() -> dict:
     return THEMES[st.session_state.get("theme", "dark")]
 
 
+# Injects the CSS that turns Streamlit into the Figma look. Selectors like [data-testid="stSidebar"] target
+# Streamlit's own elements; classes starting with .rb- are our own HTML components below.
 def inject_css():
     t = theme()
     st.markdown(f"""
@@ -135,6 +151,8 @@ table.rb td.num, table.rb th.num {{ text-align:right; font-variant-numeric: tabu
 
 
 # ------------------------------------------------------------------ formatting
+# Indian currency formatting: 22700000 -> "₹2.27 Cr", 558000 -> "₹5.58 L", 46040 -> "₹46,040"
+# (short=False always gives the full number with Indian digit grouping, e.g. ₹1,93,262).
 def inr(v, short=True) -> str:
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return "–"
@@ -160,27 +178,32 @@ def inr(v, short=True) -> str:
     return f"{sign}₹{s}"
 
 
+# 12345 -> "12,345" ; missing value -> "–"
 def num(v) -> str:
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return "–"
     return f"{int(v):,}"
 
 
+# 56.63 -> "56.6%"
 def pct(v, digits=1) -> str:
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return "–"
     return f"{float(v):.{digits}f}%"
 
 
+# HTML-escape any value before putting it into our HTML (so a "<" in data cannot break the page).
 def e(x) -> str:
     return html.escape("" if x is None or (isinstance(x, float) and math.isnan(x)) else str(x))
 
 
 # ------------------------------------------------------------------ components
+# Small rounded label, e.g. pill("Verified", "pos") -> green pill, pill("Rejected", "neg") -> red pill.
 def pill(text, tone="mute") -> str:
     return f'<span class="rb-pill rb-{tone}">{e(text)}</span>'
 
 
+# Change indicator: ▲ green for an increase, ▼ red for a decrease (invert=True when "down is good").
 def delta_pill(v, suffix="%", digits=1, invert=False) -> str:
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return pill("–")
@@ -189,12 +212,14 @@ def delta_pill(v, suffix="%", digits=1, invert=False) -> str:
     return pill(f"{arrow} {abs(v):.{digits}f}{suffix}", "pos" if good else "neg")
 
 
+# Horizontal progress bar; frac is 0..1 (e.g. pass rate 0.97 or share of the best branch).
 def bar(frac, color=None) -> str:
     t = theme()
     frac = 0 if frac is None or (isinstance(frac, float) and math.isnan(frac)) else max(0.0, min(1.0, float(frac)))
     return f'<div class="rb-bar"><i style="width:{frac * 100:.1f}%;background:{color or t["accent"]}"></i></div>'
 
 
+# Tiny inline SVG line chart for the KPI tiles: values are scaled to the box and drawn as one polyline.
 def sparkline(values, color=None, w=84, h=30) -> str:
     vals = [float(v) for v in values if v is not None and not (isinstance(v, float) and math.isnan(v))]
     if len(vals) < 2:
@@ -206,6 +231,8 @@ def sparkline(values, color=None, w=84, h=30) -> str:
     return f'<svg class="spark" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><polyline fill="none" stroke="{c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="{pts}"/></svg>'
 
 
+# KPI tile from the Figma design: icon + title + hint, big value, optional sparkline, a pill underneath
+# and an optional tag in the corner (e.g. "KPI 1").
 def tile(label, value, sub="", icon="◆", hint="", tag="", tag_tone="mute", spark=None):
     sp = sparkline(spark) if spark is not None else ""
     tg = f'<div class="tag">{pill(tag, tag_tone)}</div>' if tag else ""
@@ -214,15 +241,20 @@ def tile(label, value, sub="", icon="◆", hint="", tag="", tag_tone="mute", spa
       <div class="rb-valrow"><div class="val">{e(value)}</div>{sp}</div><div style="margin-top:6px">{sub}</div></div>""", unsafe_allow_html=True)
 
 
+# Title row of a glass card: title, grey subtitle, and a tag pill on the right.
 def card_header(title, subtitle="", tag="", tag_tone="mute"):
     tg = pill(tag, tag_tone) if tag else ""
     st.markdown(f'<div class="rb-card-h"><div><b>{e(title)}</b><small>{e(subtitle)}</small></div>{tg}</div>', unsafe_allow_html=True)
 
 
+# Big page title + subtitle at the top of every page.
 def page_header(title, subtitle):
     st.markdown(f'<div class="rb-h1">{e(title)}</div><div class="rb-sub">{e(subtitle)}</div>', unsafe_allow_html=True)
 
 
+# Renders a DataFrame as a styled HTML table. Each column is described as (header, renderer, align):
+# the renderer is a function that receives a row and returns HTML, which lets a cell contain pills, bars,
+# two-line text, links ... Example: ("Status", lambda r: pill(r.status, "pos"), "")
 def html_table(df: pd.DataFrame, cols: list, max_height: int | None = None):
     """cols: list of (header, renderer(row)->html, align) ; align 'num' right-aligns."""
     head = "".join(f'<th class="{a or ""}">{e(h)}</th>' for h, _, a in cols)
@@ -231,6 +263,7 @@ def html_table(df: pd.DataFrame, cols: list, max_height: int | None = None):
     st.markdown(f'<div {style}><table class="rb"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>', unsafe_allow_html=True)
 
 
+# Common Plotly styling: transparent background, theme colours, Inter font, thin grid lines, compact margins.
 def fig_layout(fig: go.Figure, height=280, legend=True) -> go.Figure:
     t = theme()
     fig.update_layout(
@@ -244,5 +277,6 @@ def fig_layout(fig: go.Figure, height=280, legend=True) -> go.Figure:
     return fig
 
 
+# Draw a Plotly figure full-width with the common styling and without the Plotly toolbar.
 def chart(fig, height=280, legend=True):
     st.plotly_chart(fig_layout(fig, height, legend), width="stretch", config={"displayModeBar": False})

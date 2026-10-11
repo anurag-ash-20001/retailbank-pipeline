@@ -1,12 +1,24 @@
 # Databricks Asset Bundle – infrastructure as code for the RetailBank pipeline.
 #   databricks bundle deploy            # push notebooks + create/update jobs
 #   databricks bundle run rb_end_to_end_demo
+#
+# HOW TO EXPLAIN THIS FILE
+# Instead of clicking jobs, dashboards and apps together in the UI, they are DESCRIBED here as code (IaC).
+# `databricks bundle deploy` uploads the notebooks and creates/updates everything below, so the whole
+# project can be recreated in any workspace from Git with one command. It defines:
+#   * app        retailbank-kpi       - the Streamlit frontend (folder ./app)
+#   * dashboard  RetailBank - KPI Dashboard (AI/BI, bonus)
+#   * job        rb_batch_pipeline    - the 9-task pipeline for ONE batch (parameter batch_id)
+#   * job        rb_end_to_end_demo   - reset, then run the pipeline job for day1 and day2
 bundle:
   name: retailbank_pipeline
 
+# Where the notebooks are uploaded in the workspace (visible under Workspace > Users > you > RetailBank_Pipeline).
 workspace:
   root_path: /Workspace/Users/${workspace.current_user.userName}/RetailBank_Pipeline
 
+# Variables can be overridden per deployment, e.g. --var catalog=my_catalog.
+# warehouse_id is looked up by NAME, so nobody has to copy an id into the file.
 variables:
   catalog:
     description: Unity Catalog catalog that holds the rb_* schemas
@@ -17,6 +29,9 @@ variables:
       warehouse: Serverless Starter Warehouse
 
 resources:
+  # Streamlit Databricks App. "resources" grant the app's service principal access to the SQL warehouse
+  # (to run queries) and to the pipeline job (to list runs and start a batch). Their ids are passed to the
+  # app as environment variables (see app/app.yaml: DATABRICKS_WAREHOUSE_ID, RB_JOB_ID).
   apps:
     rb_kpi_app:
       name: retailbank-kpi
@@ -32,12 +47,18 @@ resources:
             id: ${resources.jobs.rb_batch_pipeline.id}
             permission: CAN_MANAGE_RUN
 
+  # AI/BI (Lakeview) dashboard defined as JSON (bonus visualisation of the KPI views).
   dashboards:
     rb_kpi_dashboard:
       display_name: RetailBank - KPI Dashboard
       file_path: ./src/dashboards/retailbank_kpis.lvdash.json
       warehouse_id: ${var.warehouse_id}
 
+  # The pipeline. Tasks have no cluster definition -> they run on SERVERLESS compute.
+  # depends_on builds the DAG: setup -> ingest -> (profile || silver dims) -> gold dims -> silver txns
+  #                            -> gold fact -> dq_checks (quality gate) -> kpis
+  # Job parameters (batch_id, catalog ...) are passed to every notebook's widgets automatically.
+  # max_concurrent_runs: 1 prevents two runs writing the same tables at the same time.
   jobs:
     rb_batch_pipeline:
       name: RetailBank - Batch Pipeline (one day)
@@ -82,6 +103,8 @@ resources:
           depends_on: [{task_key: dq_checks}]
           notebook_task: {notebook_path: ./src/08_kpis.py}
 
+    # Demo job: drop all pipeline tables (landing files are kept), then run the batch job for day1 and day2
+    # with run_job_task, so reviewers can replay the whole Day 1 -> Day 2 story with one click.
     rb_end_to_end_demo:
       name: RetailBank - End-to-End Demo (reset, Day 1, Day 2)
       description: Drops all pipeline tables (landing files are kept), then runs the Day 1 baseline and the Day 2 incremental drop.

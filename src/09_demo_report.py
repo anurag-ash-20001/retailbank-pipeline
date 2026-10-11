@@ -2,12 +2,21 @@
 # MAGIC %md
 # MAGIC # 09 · Demo report – what was found, how it was handled, what the KPIs say
 # MAGIC Read-only walkthrough of the pipeline outputs (run after the end-to-end demo job). Uses the latest-batch KPI views.
+# MAGIC
+# MAGIC ### How to explain this notebook
+# MAGIC Use it as the **demo script**: it changes nothing, it only queries the tables in the order of the story:
+# MAGIC 1. what arrived (batches, files, row counts, the JSON defect),
+# MAGIC 2. what was wrong with it (profiling patterns),
+# MAGIC 3. how it was handled (scorecard, reject reasons, fixes, sample quarantined rows),
+# MAGIC 4. what Day 2 changed (reconciliation, late corrections, SCD2 history, recovered rows, KPI deltas),
+# MAGIC 5. the business answers (KPIs 1–10).
 
 # COMMAND ----------
 
+# This notebook does not %run includes/common (it needs no batch); it only needs to know the catalog.
 dbutils.widgets.text("catalog", "workspace")
 C = dbutils.widgets.get("catalog")
-spark.sql(f"USE CATALOG {C}")
+spark.sql(f"USE CATALOG {C}")       # so the queries below can use short names like rb_gold.kpi10_dq_scorecard
 
 # COMMAND ----------
 

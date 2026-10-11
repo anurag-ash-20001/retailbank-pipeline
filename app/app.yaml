@@ -1,3 +1,6 @@
+# Databricks App configuration: how to start the app and which environment variables it gets.
+# valueFrom: <resource name> = the id of the app resource with that name in databricks.yml
+# (sql-warehouse -> warehouse id, pipeline-job -> job id). The values are injected at runtime.
 command: ["streamlit", "run", "app.py"]
 env:
   - name: DATABRICKS_WAREHOUSE_ID

@@ -1,0 +1,3 @@
+# keep source drops byte-identical to what was received (ingestion archives them with an md5 check)
+data/** -text
+*.png binary

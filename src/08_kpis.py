@@ -10,6 +10,15 @@
 # MAGIC * *Counts / activity / risk monitoring* use **all** accepted transactions (any status) – failed attempts matter for fraud & dormancy.
 # MAGIC * Dimension attributes = current version (KYC exposure is a "right now" risk view).
 # MAGIC * "Today" for recency / dormancy = the batch **business date**.
+# MAGIC
+# MAGIC ### How to explain this notebook
+# MAGIC Every KPI follows the same pattern, implemented by the `publish()` helper below:
+# MAGIC 1. a **SQL query** on `vw_transaction_enriched` (fact + current customer / branch / product attributes),
+# MAGIC 2. the result is saved as a **table** `rb_gold.kpiNN_*` with the batch it belongs to (`as_of_batch`),
+# MAGIC 3. a **view** `rb_gold.vw_kpiNN_*` always shows the latest batch (used by the dashboard and the Streamlit app).
+# MAGIC
+# MAGIC Keeping one snapshot per batch is what makes the Day-over-Day comparison (KPI 11) possible:
+# MAGIC we can compare the KPI 1 ranking of `day1` with the ranking of `day2`.
 
 # COMMAND ----------
 
@@ -17,6 +26,9 @@
 
 # COMMAND ----------
 
+# One reusable view = fact + CURRENT customer / branch / product attributes + two helper flags:
+#   is_success        : the transaction completed
+#   is_value_eligible : completed AND in INR -> the only rows counted in money KPIs
 V = f"{GOLD}.vw_transaction_enriched"
 spark.sql(f"""
 CREATE OR REPLACE VIEW {V} COMMENT 'Fact joined to current dimension attributes + KPI helper flags' AS
@@ -33,6 +45,7 @@ LEFT JOIN {GOLD}.dim_product  p ON p.product_id  = f.product_id  AND p.is_curren
 """)
 
 BD = BUSINESS_DATE
+# Helper used by every KPI: run the SQL, stamp the batch, save the snapshot, refresh the 'latest' view.
 def publish(name, sql, comment):
     """materialize KPI snapshot for this batch + latest-batch view"""
     df = (spark.sql(sql).withColumn("as_of_batch", F.lit(BATCH_ID)).withColumn("as_of_batch_seq", F.lit(BATCH_SEQ))
@@ -49,6 +62,8 @@ def publish(name, sql, comment):
 # COMMAND ----------
 
 # MAGIC %md ## KPI 1 · Top 5 customers by net transaction volume
+# MAGIC **Logic:** per customer: gross = non-refund amount, refunds = refund amount, net = gross − refunds (successful INR only).
+# MAGIC `ROW_NUMBER() OVER (ORDER BY net DESC, txn_count DESC)` ranks them; ties on value are broken by the number of transactions.
 # MAGIC Full ranking stored (needed for Day-2 deltas); `is_top5` marks the answer. Ties broken by transaction count.
 
 # COMMAND ----------
@@ -69,6 +84,9 @@ display(k1.filter("is_top5").orderBy("rank"))
 # COMMAND ----------
 
 # MAGIC %md ## KPI 2 · Monthly transaction trend per branch & region (MoM growth via LAG)
+# MAGIC **Logic:** aggregate per branch and month → add missing months as 0 (month spine) → roll up to region →
+# MAGIC `LAG(value) OVER (PARTITION BY branch ORDER BY month)` gives last month's value → growth % = (this − last) / |last| × 100.
+# MAGIC `try_divide` returns NULL instead of an error when last month was 0.
 # MAGIC A month spine is generated so a month with no activity counts as 0 and growth is always vs the *previous calendar month*.
 
 # COMMAND ----------
@@ -102,6 +120,9 @@ display(k2.filter("grain = 'REGION'").orderBy("region", "month"))
 # COMMAND ----------
 
 # MAGIC %md ## KPI 3 · Product-wise revenue contribution (current vs prior quarter)
+# MAGIC **Logic:** revenue per quarter at 3 levels (product, category, product type); share % = revenue / total of that quarter.
+# MAGIC Each quarter is joined to the quarter 3 months earlier (`add_months(quarter, -3)`) to get the prior-quarter revenue,
+# MAGIC the QoQ change % and the change of share in percentage points (pp).
 
 # COMMAND ----------
 
@@ -131,6 +152,9 @@ display(k3.filter("grain = 'CATEGORY'").orderBy("quarter", "dim_id"))
 # COMMAND ----------
 
 # MAGIC %md ## KPI 4 · Dormant / inactive accounts (no transaction in last 90 days)
+# MAGIC **Logic:** last transaction date per account (any status = any activity); dormant when it is older than
+# MAGIC business date − 90 days, or when the account never transacted. `arrays_overlap` checks whether any product the
+# MAGIC account used is a Credit Card or Loan → *high-risk dormant* (credit exposure on an inactive customer).
 # MAGIC High-risk dormant = dormant account that holds a **Credit Card or Loan** product (product_type).
 
 # COMMAND ----------
@@ -154,6 +178,11 @@ display(k4.groupBy("dormancy_reason", "is_high_risk_dormant").count())
 # MAGIC %md ## KPI 5 · High-value / suspicious transaction monitoring
 # MAGIC Rules: `amount > 1,00,000` · `3+ transactions on the same account within any 10-minute window` · `00:00–04:59`.
 # MAGIC Burst detection: count of txns in the 10 min *starting* at each txn; a txn is flagged if it falls inside any such window with ≥3.
+# MAGIC
+# MAGIC **Velocity rule in two window steps:** (1) for each transaction count the transactions of the same account in the
+# MAGIC next 600 seconds (`RANGE BETWEEN CURRENT ROW AND 600 FOLLOWING`); a count ≥ 3 means a burst starts here.
+# MAGIC (2) a transaction is *in* a burst if a burst started within the 600 seconds before it (`RANGE BETWEEN 600 PRECEDING`).
+# MAGIC All reasons that apply are collected in `risk_reasons`; risk level = number of rules hit (1 MEDIUM, 2 HIGH, 3 CRITICAL).
 
 # COMMAND ----------
 
@@ -183,6 +212,9 @@ display(k5.groupBy("risk_reason_text").count().orderBy(F.desc("count")))
 # MAGIC %md ## KPI 6 · Customer segmentation (RFM-lite tertiles)
 # MAGIC R, F, M each scored 1–3 with `NTILE(3)` (3 = best: most recent / most frequent / highest value). Total 3–9:
 # MAGIC **Platinum ≥ 8 · Gold 6–7 · Silver 4–5 · Bronze 3**. Based on successful INR history.
+# MAGIC
+# MAGIC **Logic:** Recency = days since the last transaction (fewer is better), Frequency = number of transactions,
+# MAGIC Monetary = net value. `NTILE(3)` splits customers into thirds for each measure, scored 1 (worst third) to 3 (best third).
 
 # COMMAND ----------
 
@@ -204,6 +236,9 @@ display(k6.groupBy("segment").agg(F.count("*").alias("customers"), F.sum("moneta
 # COMMAND ----------
 
 # MAGIC %md ## KPI 7 · Branch performance ranking within region (RANK / DENSE_RANK)
+# MAGIC **Logic:** net revenue per branch (branches without revenue included with 0). `PARTITION BY region` restarts the
+# MAGIC ranking in every region. `RANK` leaves gaps after ties (1,1,3), `DENSE_RANK` does not (1,1,2).
+# MAGIC Top performer = rank 1 by revenue descending; bottom performer = rank 1 by revenue ascending.
 
 # COMMAND ----------
 
@@ -225,6 +260,8 @@ display(k7.filter("is_top_performer OR is_bottom_performer").orderBy("region", "
 # COMMAND ----------
 
 # MAGIC %md ## KPI 8 · KYC risk exposure
+# MAGIC **Logic:** count and net value of transactions per *current* KYC status (after standardising `pending `, `PENDING` …),
+# MAGIC each as a % of the total, plus one summary row `ALL_NON_VERIFIED` (= Pending + Rejected + Unknown).
 
 # COMMAND ----------
 
@@ -244,6 +281,9 @@ display(k8)
 # COMMAND ----------
 
 # MAGIC %md ## KPI 9 · Refund rate by product and branch (z-score outliers)
+# MAGIC **Logic:** refund count / total transactions (and refund value / total value) per product and per branch.
+# MAGIC z-score = (rate − average rate) / standard deviation; a product or branch with z > 2 and at least 5 transactions
+# MAGIC is flagged as an **outlier** (its refund rate is unusually high compared with its peers).
 
 # COMMAND ----------
 
@@ -270,6 +310,8 @@ display(k9.filter("is_outlier"))
 # COMMAND ----------
 
 # MAGIC %md ## KPI 10 · Data-quality scorecard (per source file, per run)
+# MAGIC **Logic:** received = rows in the ingestion log; rejected = rows in quarantine (duplicates = INFO, invalid = ERROR);
+# MAGIC passed = received − rejected. The top 3 reasons are built by sorting the reason counts and joining the first three.
 
 # COMMAND ----------
 
@@ -304,6 +346,7 @@ display(k10)
 
 # COMMAND ----------
 
+# The previous SUCCESSFUL batch (day1 when running day2). KPI 11 compares against it; on day1 there is none.
 prev = spark.sql(f"""SELECT batch_id, batch_seq FROM {AUDIT}.batch_control
                      WHERE batch_seq < {BATCH_SEQ} AND status = 'SUCCEEDED' ORDER BY batch_seq DESC LIMIT 1""").collect()
 PREV = prev[0]["batch_id"] if prev else None
@@ -312,6 +355,10 @@ print("previous batch:", PREV)
 # COMMAND ----------
 
 # MAGIC %md ### KPI 11 · Day-over-Day incremental reconciliation
+# MAGIC Three outputs: **(a)** how many records the incremental load inserted / versioned / updated / corrected / recovered,
+# MAGIC **(b)** how the KPI 1 top-5 changed versus the previous batch, **(c)** how the KPI 7 branch ranks changed.
+# MAGIC (a) is derived from the data itself (versions and batch ids on the rows), so it gives the same answer however often
+# MAGIC the batch is re-run. (b) and (c) compare the two stored KPI snapshots with a FULL OUTER JOIN.
 
 # COMMAND ----------
 
@@ -383,6 +430,9 @@ if PREV:
 # COMMAND ----------
 
 # MAGIC %md ### KPI 12 · Customer KYC status transitions (SCD2 change detection)
+# MAGIC **Logic:** `LAG(kyc_status) OVER (PARTITION BY customer_id ORDER BY version)` puts the previous version's KYC
+# MAGIC status next to each version; rows where they differ are the transitions (e.g. Pending → Verified on Day 2).
+# MAGIC This KPI only works because the customer dimension keeps history (SCD Type 2).
 
 # COMMAND ----------
 
@@ -435,6 +485,7 @@ display(k13)
 
 # COMMAND ----------
 
+# Last step of the job: mark the batch as SUCCEEDED (only reached when every previous task and the DQ gate passed).
 spark.sql(f"""UPDATE {AUDIT}.batch_control SET status = 'SUCCEEDED', finished_at = current_timestamp()
               WHERE batch_id = '{BATCH_ID}'""")
 print(f"Batch {BATCH_ID} SUCCEEDED")

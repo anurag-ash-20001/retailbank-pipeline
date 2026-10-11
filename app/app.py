@@ -1,4 +1,17 @@
 """RetailBank KPI Dashboard – Streamlit (Databricks App). Layout follows the Figma design 'RetailBank KPI Dashboard'."""
+# HOW TO EXPLAIN THIS FILE
+# ------------------------
+# app.py builds the 8 screens of the Figma design. Streamlit re-runs this script from top to bottom every time the
+# user clicks something; widgets (selectbox, toggle ...) keep their values in st.session_state between runs.
+# Structure of the file:
+#   1. page set-up + theme                        (top)
+#   2. "shell": user name, batch selector, top bar (current_user, batch_selector, top_bar)
+#   3. one function per page: page_overview(), page_transactions(), page_risk(), page_dq(), page_day2(),
+#      page_pipeline(), page_customers(), page_reports(), page_settings()
+#   4. navigation: st.navigation registers the pages in the sidebar and runs the selected one (bottom)
+# Data comes ONLY from data.py (module D); the visual components come from ui.py (module ui).
+# Every page reads the selected batch from st.session_state["batch"], so the "As of DAY1/DAY2" selector
+# switches every KPI between the Day-1 snapshot and the Day-2 snapshot.
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -7,19 +20,25 @@ import data as D
 import ui
 from ui import e, inr, num, pct, pill, delta_pill, bar
 
+# Must be the first Streamlit call: browser tab title, wide layout, sidebar open.
 st.set_page_config(page_title="RetailBank KPI Dashboard", page_icon="🏦", layout="wide", initial_sidebar_state="expanded")
+# Theme chosen in the sidebar toggle (dark by default, like the main Figma frames). Then inject the matching CSS
+# and keep the colour palette in T for charts and inline styles.
 st.session_state.setdefault("theme", "dark")
 ui.inject_css()
 T = ui.theme()
 
+# Value -> pill colour mappings used in tables (green / red / yellow / blue / grey pills).
 TONE_STATUS = {"Success": "pos", "Failed": "neg", "Pending": "warn"}
 TONE_KYC = {"Verified": "pos", "Pending": "warn", "Rejected": "neg", "Unknown": "mute"}
 TONE_SEG = {"Platinum": "acc", "Gold": "warn", "Silver": "info", "Bronze": "mute"}
 TONE_RISK = {"CRITICAL": "neg", "HIGH": "warn", "MEDIUM": "info"}
+# Human readable names of the 3 fraud rules of KPI 5.
 RULE_LABEL = {"HIGH_VALUE_GT_1L": "> ₹1 lakh", "VELOCITY_3PLUS_IN_10MIN": "3+ txns in 10 min", "ODD_HOUR_00_05": "00:00–05:00"}
 
 
 # ====================================================================== shell
+# Databricks Apps put the signed-in user's name/email in request headers -> shown in the top bar.
 def current_user():
     try:
         h = st.context.headers
@@ -28,6 +47,8 @@ def current_user():
         return "Analyst"
 
 
+# Reads rb_audit.batch_control. Only SUCCEEDED batches can be selected; the latest one is the default.
+# If the warehouse or tables are not reachable, show the error and stop the page (st.stop).
 def batch_selector():
     try:
         b = D.batches()
@@ -45,6 +66,7 @@ def batch_selector():
     return b, opts
 
 
+# Top bar of the design: avatar + user name, search box, "As of" batch selector, Export button (links to Reports).
 def top_bar(opts):
     user = current_user()
     initials = "".join(p[0] for p in user.split("@")[0].replace(".", " ").replace("_", " ").split()[:2]).upper() or "RB"
@@ -61,6 +83,8 @@ def top_bar(opts):
         st.page_link(PAGES["reports"], label="Export", icon=":material/download:")
 
 
+# Like D.kpi() but returns an empty table instead of crashing when a KPI does not exist for that batch
+# (e.g. KPI 11 exists only for Day 2).
 def kpi_or_empty(name, batch, **kw) -> pd.DataFrame:
     try:
         return D.kpi(name, batch, **kw)
@@ -69,14 +93,20 @@ def kpi_or_empty(name, batch, **kw) -> pd.DataFrame:
 
 
 # ====================================================================== 1 Overview
+# ================================ PAGE 1 · OVERVIEW =====================================================
+# Row 1: 3 KPI tiles (net volume, flagged items, KYC exposure) + data pipeline card.
+# Row 2: monthly trend by region (KPI 2) + top 5 customers (KPI 1).
+# Row 3: product contribution (KPI 3) + top/bottom branch per region (KPI 7).
 def page_overview():
     b = st.session_state["batch"]
     ui.page_header("Overview", "Customer transaction analytics across all branches")
+    # all tile numbers in one query; trend + flagged per month feed the sparklines
     h = D.headline(b)
     trend = D.daily_net(b)
     flag_m = D.monthly_flagged()
     c = st.columns([1, 1, 1, 1.15])
     with c[0]:
+        # c[0..3] are the 4 columns of the first row
         ui.tile("Net volume", inr(h["net_value"]), pill("Success · INR · net of refunds", "pos"), "₹", "Successful INR, refunds netted",
                 tag="KPI 1", spark=trend["net_value"].tolist())
     with c[1]:
@@ -87,6 +117,7 @@ def page_overview():
                 "Value by non-verified KYC", tag="KPI 8", tag_tone="neg")
     with c[3]:
         with st.container(border=True):
+            # records processed / passed for the selected batch (from the KPI 10 scorecard)
             sc = D.scorecard_all()
             bsc = sc[sc["as_of_batch"] == b]
             ui.card_header("Data pipeline", "Medallion · serverless", tag=b.upper(), tag_tone="acc")
@@ -140,6 +171,9 @@ def page_overview():
 
 
 # ====================================================================== 2 Transactions & Branches
+# ================================ PAGE 2 · TRANSACTIONS & BRANCHES ======================================
+# Monthly trend table by region with MoM pills (KPI 2), branch ranking within region (KPI 7),
+# product contribution vs prior quarter (KPI 3), refund-rate heatmap + outliers (KPI 9).
 def page_transactions():
     b = st.session_state["batch"]
     ui.page_header("Transactions & Branches", "Monthly trend, branch ranking, product revenue and refund analysis")
@@ -204,6 +238,7 @@ def page_transactions():
 
     with st.container(border=True):
         ui.card_header("Refund rate by product and region", "Refund count as % of transactions · heat = higher refund rate", tag="KPI 9")
+        # pivot: rows = product type, columns = region, values = refund rate % -> Plotly heatmap
         hm = D.refund_heatmap()
         piv = hm.pivot_table(index="product_type", columns="region", values="refund_rate_pct")
         fig = go.Figure(go.Heatmap(z=piv.values, x=piv.columns, y=piv.index, text=piv.values, texttemplate="%{text:.1f}%",
@@ -217,6 +252,9 @@ def page_transactions():
 
 
 # ====================================================================== 3 Risk & Customers
+# ================================ PAGE 3 · RISK & CUSTOMERS =============================================
+# Tiles (dormant, high-risk dormant, flagged, KYC exposure), suspicious transactions with filters (KPI 5),
+# KYC donut (KPI 8), RFM segments (KPI 6), dormant accounts list (KPI 4).
 def page_risk():
     b = st.session_state["batch"]
     ui.page_header("Risk & Customers", "Dormancy, suspicious activity, customer segments and KYC exposure")
@@ -257,6 +295,7 @@ def page_risk():
             ui.card_header("KYC risk exposure", "Share of transaction value by KYC status", tag="KPI 8")
             k = kpi_or_empty("kpi08_kyc_exposure", b, where="kyc_status <> 'ALL_NON_VERIFIED'")
             col = {"Verified": T["pos"], "Pending": T["warn"], "Rejected": T["neg"]}
+            # donut chart = pie chart with a big hole; the % of non-verified value is written in the middle
             fig = go.Figure(go.Pie(labels=k.kyc_status, values=k.net_value, hole=.72, sort=False,
                                    marker=dict(colors=[col.get(x, T["muted"]) for x in k.kyc_status], line=dict(width=0)),
                                    textinfo="none", hovertemplate="%{label}: ₹%{value:,.0f} (%{percent})<extra></extra>"))
@@ -296,6 +335,9 @@ def page_risk():
 
 
 # ====================================================================== 4 Data Quality
+# ================================ PAGE 4 · DATA QUALITY =================================================
+# Pipeline steps of the selected run, KPI 10 scorecard per file, automated quality gates, rejections by reason,
+# and tabs with the fixes applied, a quarantine explorer, the column profile and the rule catalogue.
 def page_dq():
     b = st.session_state["batch"]
     ui.page_header("Data Quality", "Profiling, cleansing rules, quarantine and automated quality gates")
@@ -369,9 +411,13 @@ def page_dq():
 
 
 # ====================================================================== 5 Day 1 vs Day 2
+# ================================ PAGE 5 · DAY 1 vs DAY 2 ===============================================
+# Everything the incremental load changed: KPI 11 reconciliation, top-5 and branch-rank deltas,
+# KPI 12 KYC transitions, KPI 13 new account activation, SCD2 history, late corrections, recovered rows.
 def page_day2(all_batches: pd.DataFrame):
     b = st.session_state["batch"]
     ui.page_header("Data changes", "What the incremental load changed – new records, SCD2 versions, late corrections")
+    # KPI 11 only exists for an incremental batch; when DAY1 is selected, fall back to the latest incremental batch
     rec = kpi_or_empty("kpi11_load_reconciliation", b)
     if rec.empty:
         later = all_batches[(all_batches.status == "SUCCEEDED") & (all_batches.batch_seq > 1)]
@@ -465,6 +511,9 @@ def page_day2(all_batches: pd.DataFrame):
 
 
 # ====================================================================== 6 Pipeline runs
+# ================================ PAGE 6 · PIPELINE RUNS ================================================
+# Last run status/duration (Jobs API), medallion layer volumes, run history, batches, a "Run batch" button
+# and the load-statistics log of the selected batch.
 def page_pipeline(all_batches: pd.DataFrame):
     ui.page_header("Pipeline runs", "Orchestration, medallion layer volumes and run history")
     runs = pd.DataFrame()
@@ -518,6 +567,7 @@ def page_pipeline(all_batches: pd.DataFrame):
         with st.container(border=True):
             ui.card_header("Run a batch", "Triggers the job with batch_id (idempotent – re-runs change nothing)")
             bsel = st.selectbox("Batch to run", all_batches.batch_id.tolist() or ["day1", "day2"], index=len(all_batches) - 1 if len(all_batches) else 0)
+            # starts the Databricks job with batch_id = the selected batch (idempotent, so re-running is safe)
             if st.button("Run batch", type="primary", icon=":material/play_arrow:"):
                 try:
                     rid = D.trigger_run(bsel)
@@ -537,6 +587,9 @@ def page_pipeline(all_batches: pd.DataFrame):
 
 
 # ====================================================================== 7 Customers
+# ================================ PAGE 7 · CUSTOMERS ====================================================
+# Tiles, searchable customer directory (current SCD2 version + RFM segment), customer profile card with
+# contact data, DQ fixes, possible duplicate and transactions, and the segment mix chart.
 def page_customers():
     b = st.session_state["batch"]
     ui.page_header("Customers", "Segments, KYC and lifetime activity per customer")
@@ -551,6 +604,7 @@ def page_customers():
     with c[3]:
         ui.tile("KYC exposure", pct(h["kyc_pct"]), pill("of value by non-verified", "warn"), "🛡", "KPI 8")
 
+    # the search box in the top bar pre-fills the directory search
     dirx = D.customer_directory()
     search = (st.session_state.get("global_search") or "").strip().lower()
     c = st.columns([1.7, 1])
@@ -609,6 +663,8 @@ def page_customers():
 
 
 # ====================================================================== 8 Reports & exports
+# ================================ PAGE 8 · REPORTS & EXPORTS ============================================
+# (label, KPI table) pairs that get a CSV download button.
 EXPORTS = [
     ("KPI 1 · Customer net ranking", "kpi01_customer_net_ranking"), ("KPI 2 · Monthly trend", "kpi02_monthly_trend"),
     ("KPI 3 · Product revenue", "kpi03_product_revenue"), ("KPI 4 · Dormant accounts", "kpi04_dormant_accounts"),
@@ -621,6 +677,7 @@ EXPORTS = [
 ]
 
 
+# Download buttons: every KPI table for the selected batch + the data-quality evidence (quarantine, checks, profile, rules).
 def page_reports():
     b = st.session_state["batch"]
     ui.page_header("Reports and exports", "Download KPI views, the data-quality scorecard and rejected records as CSV")
@@ -658,6 +715,7 @@ def page_reports():
 
 
 # ====================================================================== settings
+# Settings: switch theme, show which catalog / warehouse / job the app is connected to, clear the data cache.
 def page_settings():
     ui.page_header("Settings", "Appearance and connection")
     with st.container(border=True):
@@ -678,9 +736,13 @@ def page_settings():
 
 
 # ====================================================================== navigation
+# ================================ NAVIGATION ============================================================
+# RB_DEFAULT_PAGE is only used by automated tests to open a specific page first.
 import os as _os
 _DEFAULT = _os.getenv("RB_DEFAULT_PAGE", "overview")
+# Load the batches once per run (needed by the top bar and by pages 5 and 6).
 ALL_BATCHES, OPTS = batch_selector()
+# Register every page: function to run, title + Material icon shown in the sidebar, URL path.
 PAGES = {
     "overview": st.Page(page_overview, title="Overview", icon=":material/space_dashboard:", url_path="overview", default=_DEFAULT == "overview"),
     "transactions": st.Page(page_transactions, title="Transactions & Branches", icon=":material/account_balance:", url_path="transactions", default=_DEFAULT == "transactions"),
@@ -695,6 +757,7 @@ PAGES = {
 with st.sidebar:
     st.markdown(f'<div class="rb-top" style="margin:4px 0 8px"><div class="rb-avatar">RB</div><div class="rb-user"><b>RetailBank</b>'
                 f'<span>KPI dashboard</span></div></div>', unsafe_allow_html=True)
+# st.navigation draws the page list in the sidebar and returns the page the user selected.
 nav = st.navigation(list(PAGES.values()), position="sidebar")
 with st.sidebar:
     st.markdown("---")
@@ -703,5 +766,6 @@ with st.sidebar:
         st.session_state["theme"] = "dark" if dark else "light"
         st.rerun()
     st.caption("Data: workspace.rb_gold · refreshed every 5 min")
+# Draw the top bar, then run the selected page function.
 top_bar(OPTS)
 nav.run()

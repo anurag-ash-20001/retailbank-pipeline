@@ -77,7 +77,8 @@ src/09_demo_report.py          # read-only walkthrough for the demo
 src/99_reset.py                # drop all pipeline tables (landing files kept) for a clean replay
 src/dashboards/retailbank_kpis.lvdash.json  # AI/BI dashboard (deployed by the bundle)
 app/app.py, app/data.py, app/ui.py    # Streamlit Databricks App (Figma design), app.yaml + requirements.txt
-docs/architecture.svg, docs/data_quality_report.md
+docs/architecture.svg, docs/data_quality_report.md, docs/screenshots/ (app pages)
+data/RetailBank_SourceData[_Day2]/   # the raw source drops exactly as received (synthetic data)
 ```
 
 ## Setup & run
@@ -86,8 +87,8 @@ Prerequisites: Databricks CLI ≥ 0.2xx authenticated to the workspace (`databri
 
 ```bash
 # 1. land the source drops in the Volume (one folder per batch, files exactly as received)
-databricks fs cp RetailBank_SourceData      dbfs:/Volumes/workspace/rb_landing/raw/RetailBank_SourceData --recursive
-databricks fs cp RetailBank_SourceData_Day2 dbfs:/Volumes/workspace/rb_landing/raw/RetailBank_SourceData_Day2 --recursive
+databricks fs cp data/RetailBank_SourceData      dbfs:/Volumes/workspace/rb_landing/raw/RetailBank_SourceData --recursive
+databricks fs cp data/RetailBank_SourceData_Day2 dbfs:/Volumes/workspace/rb_landing/raw/RetailBank_SourceData_Day2 --recursive
 
 # 2. deploy notebooks + jobs
 databricks bundle deploy
